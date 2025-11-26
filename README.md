@@ -1,7 +1,7 @@
 # RAG Financial Analysis
 
 ## Overview
-**RAG Financial Analysis** is a powerful tool designed to help investors make informed decisions by combining real-time financial data with AI-powered news analysis. The application fetches market data, scrapes the latest news articles, stores them in a vector database for semantic retrieval, and uses a Large Language Model (LLM) to generate comprehensive investment insights.
+**RAG Financial Analysis** is a powerful tool designed to help investors make informed decisions by combining real-time financial data with AI-powered news analysis. The application fetches market data, scrapes the latest news articles, stores them in a vector database for semantic retrieval, and uses a Large Language Model (LLM) to generate comprehensive investment insights.(.env file is empty , use your own openai api key)
 
 ## Features
 - **Real-Time Financial Data**: Fetches up-to-date stock information (Price, PE Ratio, Market Cap, EPS, etc.) using `yfinance`.
