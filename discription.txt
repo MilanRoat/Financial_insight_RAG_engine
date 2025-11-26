@@ -1,0 +1,126 @@
+# Project Description: Financial Monitoring RAG Application
+
+This document provides a detailed explanation of the Financial Monitoring application, covering the end-to-end data flow, services used, and the exact data structures stored in the databases.
+
+## 1. Project Overview
+The application is a financial analysis tool that combines real-time stock market data with AI-powered news sentiment analysis. It uses a Retrieval-Augmented Generation (RAG) pipeline to fetch news, store it semantically, and generate investment recommendations using a Large Language Model (LLM).
+
+## 2. Architecture & Services
+The project is containerized using Docker and consists of three main services orchestrated via `docker-compose`:
+
+### A. Web Service (`web`)
+- **Technology**: Python (FastAPI), Uvicorn.
+- **Purpose**: Acts as the central controller and user interface.
+- **Responsibilities**:
+  - Serves the HTML frontend (Jinja2 templates).
+  - Handles user requests (e.g., "Analyze NVDA").
+  - Orchestrates the ETL (Extract, Transform, Load) process.
+  - Manages database connections.
+  - Interfaces with OpenAI for embeddings and analysis.
+
+### B. Relational Database Service (`db`)
+- **Technology**: PostgreSQL 15.
+- **Purpose**: Persistent storage for structured data.
+- **Responsibilities**:
+  - Stores financial metrics (price, PE ratio, etc.).
+  - Stores metadata for news articles (title, link, source).
+  - Ensures data integrity and provides a history of fetched data.
+
+### C. Vector Database Service (`qdrant`)
+- **Technology**: Qdrant.
+- **Purpose**: Semantic search engine for unstructured text (news articles).
+- **Responsibilities**:
+  - Stores high-dimensional vector embeddings of news articles.
+  - Performs similarity searches to find news relevant to a specific stock ticker during analysis.
+
+## 3. Detailed Data Flow & Process Steps
+
+The application workflow is triggered when a user submits a stock ticker (e.g., "AAPL") via the web interface.
+
+### Step 1: Financial Data Acquisition
+1.  **Source**: `yfinance` library (Yahoo Finance API).
+2.  **Action**: The app fetches current market data for the ticker.
+3.  **Storage**: Data is saved/updated in the **PostgreSQL** `company_finance` table.
+
+### Step 2: News Data Acquisition (ETL)
+1.  **Primary Source**: **Finviz** (Web Scraping via `requests` & `BeautifulSoup`).
+    - Scrapes the news table from `https://finviz.com/quote.ashx?t={ticker}`.
+2.  **Fallback Source**: **Google News** (RSS Feed via `feedparser`).
+    - Used if Finviz returns no results.
+3.  **Processing**: Extracts title, link, source, and date.
+4.  **Storage**: Metadata is saved in the **PostgreSQL** `news_articles` table to prevent duplicates (checked via URL).
+
+### Step 3: Vector Embedding & Storage (RAG Ingestion)
+1.  **Input**: The list of newly fetched news articles.
+2.  **Embedding**:
+    - The app combines the article title and summary: `"{title} - {summary}"`.
+    - Sends this text to **OpenAI API** (`text-embedding-3-small`).
+    - Receives a 1536-dimensional vector.
+3.  **Storage**:
+    - The vector and the full article payload are upserted into **Qdrant**.
+    - **ID Generation**: MD5 hash of the article link ensures idempotency (same article = same ID).
+
+### Step 4: Investment Analysis (RAG Retrieval & Generation)
+1.  **Retrieval**:
+    - The app generates a query vector for: `"News about {ticker} financial status and outlook"`.
+    - Queries **Qdrant** for the top 3 most semantically similar articles for that ticker.
+2.  **Context Construction**:
+    - Combines the retrieved news summaries with the structured financial data (Price, PE, etc.).
+3.  **Generation**:
+    - Sends a prompt to **OpenAI API** (`gpt-4o-mini`).
+    - **Prompt**: "You are a financial analyst... Analyze the following company... Provide a recommendation (Buy, Hold, Sell)."
+4.  **Output**: The generated analysis is displayed to the user on the dashboard.
+
+---
+
+## 4. Database Schemas
+
+### A. PostgreSQL Database (`rag_db`)
+Used for structured relational data.
+
+#### Table: `company_finance`
+Stores the latest financial metrics for a company.
+| Column Name | Type | Description |
+| :--- | :--- | :--- |
+| `id` | Integer | Primary Key |
+| `ticker` | String | Stock Ticker (Unique, Indexed) |
+| `name` | String | Company Name |
+| `sector` | String | Industry Sector |
+| `price` | Float | Current Stock Price |
+| `market_cap` | String | Market Capitalization |
+| `pe_ratio` | Float | Price-to-Earnings Ratio |
+| `eps` | Float | Earnings Per Share |
+| `fifty_two_week_high` | Float | 52-Week High Price |
+| `fifty_two_week_low` | Float | 52-Week Low Price |
+| `last_updated` | DateTime | Timestamp of last fetch |
+
+#### Table: `news_articles`
+Stores metadata of scraped news articles.
+| Column Name | Type | Description |
+| :--- | :--- | :--- |
+| `id` | Integer | Primary Key |
+| `ticker` | String | Stock Ticker (Indexed) |
+| `title` | String | Article Headline |
+| `link` | String | URL to the full article |
+| `source` | String | Source Name (e.g., "Finviz", "Google News") |
+| `published_date` | String | Date string (format varies by source) |
+| `summary` | Text | Short summary or title (used for embedding) |
+| `created_at` | DateTime | Record creation timestamp |
+
+### B. Vector Database (Qdrant)
+Used for semantic search.
+
+#### Collection: `news_articles`
+- **Vector Size**: 1536 dimensions (OpenAI `text-embedding-3-small`).
+- **Distance Metric**: Cosine Similarity.
+
+#### Payload (Stored alongside vector)
+This JSON payload is an exact copy of the article data used for retrieval context:
+| Field Key | Type | Description |
+| :--- | :--- | :--- |
+| `ticker` | String | Stock Ticker |
+| `title` | String | Article Headline |
+| `link` | String | URL (used for ID generation hash) |
+| `source` | String | Source Name |
+| `published_date` | String | Date string |
+| `summary` | String | Content used for context |

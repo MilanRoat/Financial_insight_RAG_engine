@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+sqlalchemy
+psycopg2-binary
+qdrant-client
+openai
+yfinance
+beautifulsoup4
+requests
+lxml
+python-dotenv
+jinja2
+feedparser
